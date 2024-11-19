@@ -12,4 +12,4 @@ imputed_dfs = run_imputation(df, m, params)
 
 for i, df in enumerate(imputed_dfs):
 
-    df.to_csv(f'./data/imputed_data/imputed_df_{i + 1}')
+    df.to_csv(f'./data/imputed_data/imputed_df_{i + 1}.csv', false)
