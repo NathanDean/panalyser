@@ -1,10 +1,13 @@
-import os
-os.environ['R_HOME'] = r'C:\Program Files\R\R-4.4.1'
+## Imputation, optimisation and evaluation functions
+
+# Imports
+# import os
+# os.environ['R_HOME'] = r'C:\Program Files\R\R-4.4.1'
 
 import pandas as pd
 import numpy as np
 from skopt import gp_minimize
-from skopt.space import Real, Integer
+from skopt.space import Real, Integer, Categorical
 
 from rpy2.robjects.packages import importr
 import rpy2.robjects as robjects
@@ -13,9 +16,44 @@ from rpy2.robjects import pandas2ri
 amelia = importr('Amelia')
 pandas2ri.activate()
 
-data_cols = ['Under-5 mortality rate - All', 'No. of under-5 deaths - All', 'Early breastfeeding rate', 'Exclusive breastfeeding rate']
 
-def clean_numeric_columns(df, data_cols):
+def validate_inputs(df, data_cols, m, ts, cs, bounds):
+
+    if not isinstance(df, pd.DataFrame):
+
+        raise TypeError('df must be a pandas DataFrame')
+    
+    if not all(col in df.columns for col in data_cols):
+
+        missing_cols = [col for col in data_cols if col not in df.columns]
+        raise ValueError(f'The following columns were not found in the DataFrame: {missing_cols}')
+    
+    if not isinstance(m, int) or m < 1:
+
+        raise ValueError('m must be a positive integer')
+    
+    if ts:
+        
+        if not pd.api.types.is_numeric_dtype(df[ts]):
+
+            raise ValueError('Time series column must be numeric')
+        
+        if ts not in df.columns:
+
+            raise ValueError(f'Time series column {ts} not found in DataFrame')
+    
+    if cs and cs not in df.columns:
+
+        raise ValueError(f'Cross-section column {cs} not found in DataFrame')
+    
+    if bounds is not None and not isinstance(bounds, str):
+
+        raise TypeError('bounds must be an R matrix string')
+
+
+def clean_data_columns(df, data_cols):
+
+    """Cleans data columns before imputation"""
 
     df_clean = df.copy()
     prob_cols = []
@@ -54,9 +92,13 @@ def clean_numeric_columns(df, data_cols):
 
     return df_clean, prob_cols
 
-def run_imputation(df, m, params):
 
-    df_clean, prob_cols = clean_numeric_columns(df, data_cols)
+def run_imputation(df, data_cols, m, params, ts = None, cs = None, bounds = None):
+
+    """Creates multiple imputed datasets using Amelia"""
+
+    validate_inputs(df, data_cols, m, ts, cs, bounds)
+    df_clean, prob_cols = clean_data_columns(df, data_cols)
 
     if prob_cols:
 
@@ -77,31 +119,37 @@ def run_imputation(df, m, params):
 
         print('Continuing imputation with cleaned data')
     
-    r_df = pandas2ri.py2rpy(df)
-
     for col in data_cols:
 
         if not pd.api.types.is_numeric_dtype(df_clean[col]):
 
             raise ValueError(f'{col} is not numeric after cleaning')
     
-    bounds = robjects.r('''matrix(c(
-        3, 0, 35,
-        4, 0, 385000,
-        5, 0, 95,
-        6, 0, 90
-    ), ncol = 3, byrow = TRUE)''')
+    r_df = pandas2ri.py2rpy(df_clean)
 
-    results = amelia.amelia(
-        r_df,
-        m = m,
-        ts = 'Year',
-        cs = 'Area',
-        bounds = bounds,
-        tolerance = params[0],
-        empri = params[1],
-        max_resample = params[2],
-    )
+    amelia_params = {
+
+        'x': r_df,
+        'm': m,
+        'tolerance': params[0],
+        'empri': params[1],
+        'max_resample': params[2]
+
+    }
+
+    if ts is not None:
+
+        amelia_params['ts'] = ts
+
+    if cs is not None:
+
+        amelia_params['cs'] = cs
+    
+    if bounds is not None and isinstance(bounds, str):
+
+        amelia_params['bounds'] = robjects.r(bounds)
+
+    results = amelia.amelia(**amelia_params)
 
     imputed_dfs = []
 
@@ -139,16 +187,16 @@ def run_imputation(df, m, params):
 
         except Exception as e:
 
-            print(f'Error in DataFrame construction: {e}')
-
-            if imputed_data.shape [0] == len(df.columns):
-
-                print(f'Error during imputation {i + 1}: {e}')
+                print(f'Error during imputation {i + 1}')
+                print(f'Error type: {type(e)}')
+                print(f'Error message: {str(e)}')
 
     return imputed_dfs
 
 
-def evaluate_imputation(imputed_dfs, original_stats):
+def evaluate_imputations(imputed_dfs, data_cols, original_stats):
+
+    """Evaluates imputations against original dataset statistics"""
 
     original_correlations = original_stats['correlations']
     original_means = original_stats['means']
@@ -160,7 +208,7 @@ def evaluate_imputation(imputed_dfs, original_stats):
 
         try:
         
-            imp_correlations, imp_means, imp_variances = df[data_cols].corr().values, df.mean().values(), df.var().values()
+            imp_correlations, imp_means, imp_variances = df[data_cols].corr().values, df[data_cols].mean().values, df[data_cols].var().values
 
             if(
 
@@ -194,12 +242,18 @@ def evaluate_imputation(imputed_dfs, original_stats):
     return overall_score
 
 
-def objective_function(df, original_stats, m, params):
+def objective_function(df, data_cols, original_stats, m, params, ts = None, cs = None, bounds = None):
+
+    """
+    Objective function to be optmised by Bayesian optimiser
+
+    Runs imputation using set of hyperparameters to be tested, then evaluates results and returns score
+    """
 
     try:
         
-        imputed_dfs = run_imputation(df, m, params)
-        score = evaluate_imputation(imputed_dfs, original_stats)
+        imputed_dfs = run_imputation(df, data_cols, m, params, ts, cs, bounds)
+        score = evaluate_imputations(imputed_dfs, data_cols, original_stats)
 
         if np.isinf(score):
 
@@ -210,13 +264,38 @@ def objective_function(df, original_stats, m, params):
     except Exception as e:
         
         print(f'Error during optimisation: {e}')
-        return float('1e10')
+        return 1e10
 
 
-def optimise_imputation(df, m, n_calls):
+def optimise_imputation(
+        df,
+        data_cols,
+        m,
+        n_calls,
+        ts = None,
+        cs = None,
+        bounds = None,
+        tolerance_range = (1e-5, 1e-1),
+        empri_factor = (0.005, 0.01),
+        max_resample_range = (1, 1000)):
+
+    """
+    Tunes Amelia hyperparameters using Bayesian optimiser
+
+    Returns optimal hyperparameter settings as well as worst and best scores
+
+    args:
+      df: Pandas dataframe
+      data_cols: Columns with missing data
+      m: No. of imputations to perform
+      n_calls: No. of rounds of optimisation to perform
+
+    """
     
+    # No. of observations in dataset
     n_observations = len(df)
     
+    # Important statistical properties of original dataset, used as criteria for evaluation
     original_stats = {
 
         'correlations': df[data_cols].corr().values,
@@ -225,31 +304,34 @@ def optimise_imputation(df, m, n_calls):
     
     }
 
-    if (np.isnan(original_stats['correlations']).any()
-        or np.isnan(original_stats['means']).any()
-        or np.isnany(original_stats['variances']).any()):
+    if (np.isnan(original_stats['correlations']).any() or
+        np.isnan(original_stats['means']).any() or
+        np.isnan(original_stats['variances']).any()):
 
             print('Warning: Original correlations, means or variances are NaN')
 
+    # Bounds for Amelia hyperparameters
     params = [
 
-        Real(1e-5, 1e-1, name = 'tolerance'),
-        Real(n_observations * 0.005, n_observations * 0.01, name = 'empri'),
-        Integer(1, 1000, name = 'max_resample')
+        Real(tolerance_range[0], tolerance_range[1], name = 'tolerance'),
+        Real(n_observations * empri_factor[0], n_observations * empri_factor[1], name = 'empri'),
+        Integer(max_resample_range[0], max_resample_range[1], name = 'max_resample')
 
     ]
 
     evaluation_scores = []
     
+    # Returns closure containing params, to be passed to Bayesian optimiser
     def wrapped_objective_function(params):
-
-        score = objective_function(df, original_stats, m, params)
+        
+        score = objective_function(df, data_cols, original_stats, m, params, ts, cs, bounds)
         
         if not np.isinf(score):
             evaluation_scores.append(score)
         
         return score
 
+    # Runs Bayesian optimiser w/ params and stores result
     result = gp_minimize(
 
         wrapped_objective_function,
@@ -260,6 +342,7 @@ def optimise_imputation(df, m, n_calls):
 
     )
 
+    # Stores optimal parameters returned by Bayesian optimiser
     optimal_parameters = [
     
         result.x[0],        # tolerance   
