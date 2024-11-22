@@ -1,17 +1,18 @@
 ## Imputation, optimisation and evaluation functions
 
 # Imports
-# import os
-# os.environ['R_HOME'] = r'C:\Program Files\R\R-4.4.1'
 
 import pandas as pd
 import numpy as np
-from skopt import gp_minimize
-from skopt.space import Real, Integer, Categorical
 
 from rpy2.robjects.packages import importr
 import rpy2.robjects as robjects
 from rpy2.robjects import pandas2ri
+
+from skopt import gp_minimize
+from skopt.space import Real, Integer, Categorical
+
+from linearmodels import PanelOLS, RandomEffects
 
 amelia = importr('Amelia')
 pandas2ri.activate()
@@ -355,3 +356,59 @@ def optimise_imputation(
     final_score = result.fun
 
     return optimal_parameters, worst_score, final_score
+
+
+def prepare_data(df, ts, cs):
+
+    df = df.copy()
+
+    try:
+
+        df[ts] = pd.to_datetime(df[ts])
+
+    except:
+
+        pass
+
+    duplicates = df.duplicated(subset = [cs, ts])
+
+    if duplicates.any():
+
+        raise ValueError(f'Duplicate entries found for {cs}, {ts}')
+    
+    prepared_df = df.set_index([cs, ts])
+    prepared_df = prepared_df.sort_index()
+
+    return prepared_df
+
+def run_fe_regression(df, ts, cs, target, predictors, time_effects = False, cov_type = 'kernel'):
+
+    prepared_df = prepare_data(df, ts, cs)
+
+    model = PanelOLS(
+
+        dependent = prepared_df[target],
+        exog = prepared_df[predictors],
+        entity_effects = True,   # Uses fixed effects
+        time_effects = time_effects
+
+    )
+
+    results = model.fit(cov_type = cov_type)    # Uses Driscoll-Kraay errors
+
+    return results
+
+def run_re_regression(df, ts, cs, target, predictors, cov_type = 'kernel'):
+
+    prepared_df = prepare_data(df, ts, cs)
+
+    model = RandomEffects(
+
+        dependent = prepared_df[target],
+        exog = prepared_df[predictors]
+
+    )
+
+    results = model.fit(cov_type = cov_type)
+
+    return results

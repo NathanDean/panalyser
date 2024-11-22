@@ -1,7 +1,7 @@
 ## Executes imputation
 
 import pandas as pd
-from panalyser import optimise_imputation, run_imputation
+from panalyser import optimise_imputation, run_imputation, run_fe_regression, run_re_regression
 
 df = pd.read_csv('./data/test_data.csv')
 data_cols = ['Under-5 mortality rate - All', 'No. of under-5 deaths - All', 'Early breastfeeding rate', 'Exclusive breastfeeding rate']
@@ -22,3 +22,12 @@ imputed_dfs = run_imputation(df, data_cols, m, params, ts, cs, bounds)
 for i, df in enumerate(imputed_dfs):
 
     df.to_csv(f'./data/imputed_data/imputed_df_{i + 1}.csv', index = False)
+
+df = pd.read_csv('./data/imputed_data/imputed_df_1.csv')
+target = ['Under-5 mortality rate - All']
+predictors = ['Early breastfeeding rate', 'Exclusive breastfeeding rate']
+
+fe_results = run_fe_regression(df, ts, cs, target, predictors)
+re_results = run_re_regression(df, ts, cs, target, predictors)
+
+print(fe_results, '\n', re_results)
