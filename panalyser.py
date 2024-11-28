@@ -1,6 +1,21 @@
-## Imputation, optimisation and evaluation functions
+"""
 
-# Imports
+Panel Data Analysis Helper Module
+
+This module provides tools for handling panel data, including multiple imputation, hyperparameter optimization, and panel regression analysis. 
+
+It uses rpy2 to access the R package Amelia for imputation, and uses Python's linearmodels for panel regression.
+
+Main Features:
+- Multiple imputation of missing data using Amelia
+- Bayesian optimization of Amelia hyperparameters
+- Fixed and random effects panel regression
+- Data validation and cleaning utilities
+
+"""
+
+
+# Required imports
 
 import pandas as pd
 import numpy as np
@@ -10,15 +25,36 @@ import rpy2.robjects as robjects
 from rpy2.robjects import pandas2ri
 
 from skopt import gp_minimize
-from skopt.space import Real, Integer, Categorical
+from skopt.space import Real, Integer
 
 from linearmodels import PanelOLS, RandomEffects
+
+
+# Initialise R interface
 
 amelia = importr('Amelia')
 pandas2ri.activate()
 
 
 def validate_inputs(df, data_cols, m, ts, cs, bounds):
+
+    """
+
+    Validates input parameters for imputation functions.
+    
+    Args:
+        df (pandas.DataFrame): Input dataset
+        data_cols (list): List of column names containing data to be imputed
+        m (int): Number of imputations to perform
+        ts (str): Time series column
+        cs (str): Cross-section column
+        bounds (str): R matrix string specifying bounds for imputation
+    
+    Raises:
+        TypeError: If inputs are of incorrect type
+        ValueError: If inputs contain invalid values or missing columns
+    
+    """
 
     if not isinstance(df, pd.DataFrame):
 
@@ -54,7 +90,18 @@ def validate_inputs(df, data_cols, m, ts, cs, bounds):
 
 def clean_data_columns(df, data_cols):
 
-    """Cleans data columns before imputation"""
+    """
+
+    Cleans data columns before imputation by converting to numeric values.
+    
+    Args:
+        df (pandas.DataFrame): Input dataset
+        data_cols (list): List of column names to clean
+    
+    Returns:
+        tuple: (cleaned DataFrame, list of problematic columns with details)
+    
+    """
 
     df_clean = df.copy()
     prob_cols = []
@@ -63,12 +110,13 @@ def clean_data_columns(df, data_cols):
 
         try:
 
+            # Remove non-numeric characters and convert to numeric
             df_clean[col] = df_clean[col].astype(str).str.strip()
             df_clean[col] = df_clean[col].replace(r'[^0-9.-]', '', regex = True)
-
             numeric_col = pd.to_numeric(df_clean[col], errors = 'coerce')
             df_clean[col] = numeric_col
 
+            # Check for high percentage of null values
             percentage_null = numeric_col.isna().mean() * 100
 
             if percentage_null > 10:
@@ -96,11 +144,31 @@ def clean_data_columns(df, data_cols):
 
 def run_imputation(df, data_cols, m, params, ts = None, cs = None, bounds = None):
 
-    """Creates multiple imputed datasets using Amelia"""
+    """
+    
+    Performs multiple imputation using Amelia.
+    
+    Args:
+        df (pandas.DataFrame): Input dataset
+        data_cols (list): Columns containing data to be imputed
+        m (int): Number of imputations to perform
+        params (list): Amelia hyperparameters [tolerance, empri, max_resample]
+        ts (str, optional): Time series column
+        cs (str, optional): Cross-section column
+        bounds (str, optional): R matrix string specifying bounds
+    
+    Returns:
+        list: List of imputed DataFrames
+    
+    Raises:
+        ValueError: If data cleaning or imputation fails
+    
+    """
 
     validate_inputs(df, data_cols, m, ts, cs, bounds)
     df_clean, prob_cols = clean_data_columns(df, data_cols)
 
+    # Handle problematic columns
     if prob_cols:
 
         print('Warning: Problems in following columns:')
@@ -108,7 +176,7 @@ def run_imputation(df, data_cols, m, params, ts = None, cs = None, bounds = None
         for col in prob_cols:
 
             print(f'Column: {col}')
-            print(f'Sample values: {col['sample']}')
+            print(f'Sample values: {col["sample"]}')
 
             if 'percentage_null' in col:
 
@@ -120,14 +188,17 @@ def run_imputation(df, data_cols, m, params, ts = None, cs = None, bounds = None
 
         print('Continuing imputation with cleaned data')
     
+    # Verify data columns are numeric after cleaning
     for col in data_cols:
 
         if not pd.api.types.is_numeric_dtype(df_clean[col]):
 
             raise ValueError(f'{col} is not numeric after cleaning')
     
+    # Convert pandas DataFrame to R DataFrame
     r_df = pandas2ri.py2rpy(df_clean)
 
+    # Set up Amelia hyperparameters
     amelia_params = {
 
         'x': r_df,
@@ -150,10 +221,12 @@ def run_imputation(df, data_cols, m, params, ts = None, cs = None, bounds = None
 
         amelia_params['bounds'] = robjects.r(bounds)
 
+    # Run imputation
     results = amelia.amelia(**amelia_params)
 
     imputed_dfs = []
 
+    # Process results
     for i in range(m):
 
         try:
@@ -162,6 +235,7 @@ def run_imputation(df, data_cols, m, params, ts = None, cs = None, bounds = None
             imputed_data_shape = imputed_data.shape
             expected_data_shape = (len(df), len(df.columns))
 
+            # Handle potential data shape issues caused by translation between R and Python
             if imputed_data_shape != expected_data_shape:
 
                 if imputed_data_shape[0] == expected_data_shape[1] and imputed_data_shape[1] == expected_data_shape[0]:
@@ -174,6 +248,7 @@ def run_imputation(df, data_cols, m, params, ts = None, cs = None, bounds = None
                 
             imputed_df = pd.DataFrame(imputed_data, columns = df.columns, index = df.index)
 
+            # Verify data columns are numeric after imputation
             for col in data_cols:
 
                 imputed_df[col] = pd.to_numeric(imputed_df[col], errors = 'raise')
@@ -197,7 +272,19 @@ def run_imputation(df, data_cols, m, params, ts = None, cs = None, bounds = None
 
 def evaluate_imputations(imputed_dfs, data_cols, original_stats):
 
-    """Evaluates imputations against original dataset statistics"""
+    """
+    
+    Evaluates imputation quality by comparing statistical properties of imputed and original datasetes.
+    
+    Args:
+        imputed_dfs (list): List of imputed DataFrames
+        data_cols (list): Columns to evaluate
+        original_stats (dict): Statistical properties of original dataset
+    
+    Returns:
+        float: Average deviation of statistical properties of imputed and original datasets (lower is better)
+    
+    """
 
     original_correlations = original_stats['correlations']
     original_means = original_stats['means']
@@ -211,6 +298,7 @@ def evaluate_imputations(imputed_dfs, data_cols, original_stats):
         
             imp_correlations, imp_means, imp_variances = df[data_cols].corr().values, df[data_cols].mean().values, df[data_cols].var().values
 
+            # Check for NaN values in statistical property variables
             if(
 
                 np.isnan(imp_correlations).any() or
@@ -222,6 +310,7 @@ def evaluate_imputations(imputed_dfs, data_cols, original_stats):
                 scores.append(float('inf'))
                 continue
 
+            # Calculate errors using mean absolute distance
             correlations_error = np.mean(np.abs(original_correlations - imp_correlations))
             means_error = np.mean(np.abs(original_means - imp_means))
             variances_error = np.mean(np.abs(original_variances - imp_variances))
@@ -246,9 +335,22 @@ def evaluate_imputations(imputed_dfs, data_cols, original_stats):
 def objective_function(df, data_cols, original_stats, m, params, ts = None, cs = None, bounds = None):
 
     """
-    Objective function to be optmised by Bayesian optimiser
-
-    Runs imputation using set of hyperparameters to be tested, then evaluates results and returns score
+    
+    Objective function for Bayesian optimization of Amelia hyperparameters.
+    
+    Args:
+        df (pandas.DataFrame): Input dataset
+        data_cols (list): Columns to impute
+        original_stats (dict): Statistical properties of original dataset
+        m (int): Number of imputations Number of imputations to perform
+        params (list): Amelia hyperparameters [tolerance, empri, max_resample]
+        ts (str, optional): Time series column
+        cs (str, optional): Cross-section column
+        bounds (str, optional): R matrix string specifying bounds
+    
+    Returns:
+        float: Average deviation of statistical properties of imputed and original datasets (lower is better)
+    
     """
 
     try:
@@ -281,22 +383,30 @@ def optimise_imputation(
         max_resample_range = (1, 1000)):
 
     """
-    Tunes Amelia hyperparameters using Bayesian optimiser
 
-    Returns optimal hyperparameter settings as well as worst and best scores
-
-    args:
-      df: Pandas dataframe
-      data_cols: Columns with missing data
-      m: No. of imputations to perform
-      n_calls: No. of rounds of optimisation to perform
+    Tunes Amelia hyperparameters using Bayesian optimization.
+    
+    Args:
+        df (pandas.DataFrame): Input dataset
+        data_cols (list): Columns to impute
+        m (int): Number of imputations
+        n_calls (int): Number of optimization iterations
+        ts (str, optional): Time series column
+        cs (str, optional): Cross-section column
+        bounds (str, optional): R matrix string specifying bounds
+        tolerance_range (tuple): Range for convergence tolerance
+        empri_factor (tuple): Range for empirical prior factor
+        max_resample_range (tuple): Range for maximum resampling attempts
+    
+    Returns:
+        tuple: (optimal parameters, worst score, final score)
 
     """
     
     # No. of observations in dataset
     n_observations = len(df)
     
-    # Important statistical properties of original dataset, used as criteria for evaluation
+    # Calculate statistical properties of original dataset
     original_stats = {
 
         'correlations': df[data_cols].corr().values,
@@ -311,7 +421,7 @@ def optimise_imputation(
 
             print('Warning: Original correlations, means or variances are NaN')
 
-    # Bounds for Amelia hyperparameters
+    # Define hyperparameter space for optimisation
     params = [
 
         Real(tolerance_range[0], tolerance_range[1], name = 'tolerance'),
@@ -322,7 +432,6 @@ def optimise_imputation(
 
     evaluation_scores = []
     
-    # Returns closure containing params, to be passed to Bayesian optimiser
     def wrapped_objective_function(params):
         
         score = objective_function(df, data_cols, original_stats, m, params, ts, cs, bounds)
@@ -332,7 +441,7 @@ def optimise_imputation(
         
         return score
 
-    # Runs Bayesian optimiser w/ params and stores result
+    # Run Bayesian optimisation
     result = gp_minimize(
 
         wrapped_objective_function,
@@ -360,6 +469,23 @@ def optimise_imputation(
 
 def prepare_data(df, ts, cs):
 
+    """
+
+    Prepares panel data for regression analysis.
+    
+    Args:
+        df (pandas.DataFrame): Input dataset
+        ts (str): Time series column
+        cs (str): Cross-section column
+    
+    Returns:
+        pandas.DataFrame: Prepared dataset with multi-index
+    
+    Raises:
+        ValueError: If duplicate entries are found
+
+    """
+
     df = df.copy()
 
     try:
@@ -383,6 +509,25 @@ def prepare_data(df, ts, cs):
 
 def run_fe_regression(df, ts, cs, target, predictors, time_effects = False, cov_type = 'kernel'):
 
+    """
+    
+    Runs fixed effects panel regression.
+    
+    Args:
+        df (pandas.DataFrame): Input dataset
+        ts (str): Time series column
+        cs (str): Cross-section column
+        target (list): Target variable(s)
+        predictors (list): Predictor variable(s)
+        time_effects (bool, optional): Whether to include time fixed effects
+        cov_type (str, optional): Covariance estimator type, default 'kernel' for Driscoll-Kraay errors
+    
+    Returns:
+        linearmodels.PanelResults: Regression results
+    
+    """
+        
+
     prepared_df = prepare_data(df, ts, cs)
 
     model = PanelOLS(
@@ -398,7 +543,25 @@ def run_fe_regression(df, ts, cs, target, predictors, time_effects = False, cov_
 
     return results
 
+
 def run_re_regression(df, ts, cs, target, predictors, cov_type = 'kernel'):
+
+    """
+    
+    Runs random effects panel regression.
+    
+    Args:
+        df (pandas.DataFrame): Input dataset
+        ts (str): Time series column
+        cs (str): Cross-section column
+        target (list): Target variable(s)
+        predictors (list): Predictor variable(s)
+        cov_type (str, optional): Covariance estimator type, default 'kernel' for Driscoll-Kraay errors
+    
+    Returns:
+        linearmodels.PanelResults: Regression results
+    
+    """
 
     prepared_df = prepare_data(df, ts, cs)
 
