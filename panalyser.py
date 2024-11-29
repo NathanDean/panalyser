@@ -19,6 +19,7 @@ Main Features:
 
 import pandas as pd
 import numpy as np
+from scipy import stats
 
 from rpy2.robjects.packages import importr
 import rpy2.robjects as robjects
@@ -575,3 +576,208 @@ def run_re_regression(df, ts, cs, target, predictors, cov_type = 'kernel'):
     results = model.fit(cov_type = cov_type)
 
     return results
+
+
+def combine_regression_results(results_list, method='fe'):
+
+    """
+    
+    Combines regression results from multiple imputed datasets using Rubin's rules.
+    
+    Args:
+        results_list (list): List of regression results from either run_fe_regression
+            or run_re_regression
+        method (str): Type of regression performed ('fe' or 're')
+    
+    Returns:
+        dict: Combined results containing:
+            - coefficients: Combined coefficient estimates
+            - std_errors: Combined standard errors
+            - t_stats: t-statistics for coefficients
+            - p_values: p-values for coefficients
+            - conf_intervals: 95% confidence intervals
+            - r2: Combined R-squared value (between variation for FE)
+    
+    Notes:
+        Implementation follows Rubin's rules (Rubin, 1987):
+        1. The combined estimate is the average of the individual estimates
+        2. The combined variance accounts for both within and between imputation variance
+        
+    References:
+        Rubin, D.B. (1987). Multiple Imputation for Nonresponse in Surveys
+    
+    """
+    
+    # Validate inputs
+    if not results_list:
+
+        raise ValueError('results_list cannot be empty')
+    
+    if method not in ['fe', 're']:
+        raise ValueError('method must be either "fe" or "re"')
+    
+    # Number of imputations
+    m = len(results_list)
+    
+    # Extract coefficients and standard errors from each result
+    coef_list = []
+    se_list = []
+    
+    for result in results_list:
+        coef_list.append(result.params)
+        se_list.append(result.std_errors)
+    
+    # Convert to coefficient and standard error lists to numpy arrays
+    coef_array = np.array(coef_list)
+    se_array = np.array(se_list)
+    
+    # Combined coefficients (mean across imputations)
+    combined_coef = np.mean(coef_array, axis=0)
+    
+    # Within-imputation variance (mean of squared standard errors)
+    within_var = np.mean(se_array ** 2, axis=0)
+    
+    # Between-imputation variance
+    between_var = np.var(coef_array, axis=0, ddof=1)
+    
+    # Total variance using Rubin's formula
+    total_var = within_var + (1 + 1/m) * between_var
+    combined_se = np.sqrt(total_var)
+    
+    # Degrees of freedom using Rubin's formula
+    # Note: This uses the approximate degrees of freedom formula
+    df = (m - 1) * (1 + (m * within_var) / ((m + 1) * between_var)) ** 2
+    
+    # Calculate t-statistics
+    t_stats = combined_coef / combined_se
+    
+    # Calculate p-values
+    p_values = 2 * (1 - stats.t.cdf(abs(t_stats), df))
+    
+    # Calculate confidence intervals
+    t_crit = stats.t.ppf(0.975, df)
+    conf_intervals = np.vstack((
+        combined_coef - t_crit * combined_se,
+        combined_coef + t_crit * combined_se
+    )).T
+    
+    # Combine R-squared values (use R-squared for FE between as it's more meaningful)
+    r2_list = []
+
+    for result in results_list:
+    
+        if method == 'fe':
+    
+            r2_list.append(result.rsquared_between)
+    
+        else:
+    
+            r2_list.append(result.rsquared)
+    
+    combined_r2 = float(np.mean(r2_list))
+    
+    # Create dictionary of results
+    param_names = results_list[0].params.index
+
+    results_dict = {
+    
+        'coefficients': pd.Series(combined_coef, index=param_names).to_dict(),
+        'std_errors': pd.Series(combined_se, index=param_names).to_dict(),
+        't_stats': pd.Series(t_stats, index=param_names).to_dict(),
+        'p_values': pd.Series(p_values, index=param_names).to_dict(),
+        'conf_intervals': pd.DataFrame(
+    
+            conf_intervals, 
+            index=param_names,
+            columns=['lower', 'upper']
+    
+        ).to_dict('index'),
+        'r2': combined_r2,
+        'num_imputations': m,
+        'degrees_of_freedom': pd.Series(df, index=param_names).to_dict()
+    
+    }
+    
+    return results_dict
+
+
+def run_combined_regression(
+        imputed_dfs,
+        ts,
+        cs,
+        target,
+        predictors,
+        method='fe',
+        time_effects=False,
+        cov_type='kernel'):
+    
+    """
+    
+    Runs panel regression on multiple imputed datasets and combines results using Rubin's rules.
+    
+    Args:
+        imputed_dfs (list): List of imputed DataFrames
+        ts (str): Time series column name
+        cs (str): Cross-section identifier column name
+        target (list): Target variable(s)
+        predictors (list): Predictor variables
+        method (str): Regression method ('fe' for fixed effects or 're' for random effects)
+        time_effects (bool): Whether to include time fixed effects (only for FE)
+        cov_type (str): Covariance estimator type
+    
+    Returns:
+        dict: Combined regression results following Rubin's rules
+    
+   
+    """
+    
+    if not imputed_dfs:
+        raise ValueError("imputed_dfs cannot be empty")
+    
+    if method not in ['fe', 're']:
+        raise ValueError("method must be either 'fe' or 're'")
+    
+    # Run regression on each imputed dataset
+    results_list = []
+
+    for i, df in enumerate(imputed_dfs):
+
+        try:
+
+            if method == 'fe':
+
+                result = run_fe_regression(
+                    df=df,
+                    ts=ts,
+                    cs=cs,
+                    target=target,
+                    predictors=predictors,
+                    time_effects=time_effects,
+                    cov_type=cov_type
+                )
+
+            else:
+
+                result = run_re_regression(
+                    df=df,
+                    ts=ts,
+                    cs=cs,
+                    target=target,
+                    predictors=predictors,
+                    cov_type=cov_type
+                )
+
+            results_list.append(result)
+
+        except Exception as e:
+
+            print(f"Error in regression {i + 1}: {str(e)}")
+    
+    if not results_list:
+
+        raise ValueError("No successful regressions to combine")
+    
+    # Combine results using Rubin's rules
+    combined_results = combine_regression_results(results_list, method=method)
+    
+    return combined_results
