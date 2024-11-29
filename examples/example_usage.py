@@ -3,7 +3,7 @@
 import pandas as pd
 from panalyser import optimise_imputation, run_imputation, run_fe_regression, run_re_regression, run_combined_regression
 
-df = pd.read_csv('./data/test_data.csv')
+df = pd.read_csv('./data/breastfeeding_data.csv')
 data_cols = ['Under-5 mortality rate - All', 'No. of under-5 deaths - All', 'Early breastfeeding rate', 'Exclusive breastfeeding rate']
 ts = 'Year'
 cs = 'Area'
