@@ -1,18 +1,14 @@
-[
-build-system
-]
+[build-system]
 requires = ["setuptools>=45", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[
-project
-]
+[project]
 name = "panalyser"
 version = "0.1.0"
 description = "A tool for panel data analysis and imputation"
 readme = "README.md"
 authors = [
-    {name = "Nathan Dean", email = ""}
+    {name = "Nathan Dean", email = "nathandean@hotmail.co.uk"}
 ]
 license = {text = "GPL-2.0"}
 requires-python = ">=3.13"
@@ -27,14 +23,12 @@ dependencies = [
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: GNU General Public Licence v2 (GPLv2)",
+    "License :: OSI Approved :: GNU General Public License v2 (GPLv2)",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Mathematics",
     "Topic :: Scientific/Engineering :: Statistics"
 ]
 
-[
-project.urls
-]
+[project.urls]
 Homepage = "https://github.com/NathanDean/panalyser"
