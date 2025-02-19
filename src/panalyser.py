@@ -1,16 +1,17 @@
 """
 
-Panel Data Analysis Helper Module
+Panelyser - User-friendly tools for panel data analysis in Python
 
 This module provides tools for handling panel data, including multiple imputation, hyperparameter optimization, and panel regression analysis. 
 
-It uses rpy2 to access the R package Amelia for imputation, and uses Python's linearmodels for panel regression.
+It uses rpy2 to access the R package Amelia for multiple imputation, scikit-opt for hyperparameter optimisation, and linearmodels for panel regression.
 
 Main Features:
 - Multiple imputation of missing data using Amelia
 - Bayesian optimization of Amelia hyperparameters
 - Fixed and random effects panel regression
-- Data validation and cleaning utilities
+- Combination of regression results using Rubin's rules
+- Data validation and cleaning
 
 """
 
@@ -41,7 +42,7 @@ def validate_inputs(df, data_cols, m, ts, cs, bounds):
 
     """
 
-    Validates input parameters for imputation functions.
+    Validates inputs for imputation functions.
     
     Args:
         df (pandas.DataFrame): Input dataset
@@ -340,7 +341,7 @@ def objective_function(df, data_cols, original_stats, m, params, ts = None, cs =
     Objective function for Bayesian optimization of Amelia hyperparameters.
     
     Args:
-        df (pandas.DataFrame): Input dataset
+        df (pandas.DataFrame): Input DataFrame
         data_cols (list): Columns to impute
         original_stats (dict): Statistical properties of original dataset
         m (int): Number of imputations Number of imputations to perform
@@ -385,10 +386,10 @@ def optimise_imputation(
 
     """
 
-    Tunes Amelia hyperparameters using Bayesian optimization.
+    Tunes Amelia hyperparameters using Bayesian optimisation.
     
     Args:
-        df (pandas.DataFrame): Input dataset
+        df (pandas.DataFrame): Input DataFrame
         data_cols (list): Columns to impute
         m (int): Number of imputations
         n_calls (int): Number of optimization iterations
@@ -453,7 +454,7 @@ def optimise_imputation(
 
     )
 
-    # Stores optimal parameters returned by Bayesian optimiser
+    # Stores optimal parameters returned by Bayesian optimisation
     optimal_parameters = [
     
         result.x[0],        # tolerance   
@@ -475,7 +476,7 @@ def prepare_data(df, ts, cs):
     Prepares panel data for regression analysis.
     
     Args:
-        df (pandas.DataFrame): Input dataset
+        df (pandas.DataFrame): Input DataFrame
         ts (str): Time series column
         cs (str): Cross-section column
     
@@ -507,6 +508,7 @@ def prepare_data(df, ts, cs):
     prepared_df = prepared_df.sort_index()
 
     return prepared_df
+
 
 def run_fe_regression(df, ts, cs, target, predictors, time_effects = False, cov_type = 'kernel'):
 
@@ -540,7 +542,7 @@ def run_fe_regression(df, ts, cs, target, predictors, time_effects = False, cov_
 
     )
 
-    results = model.fit(cov_type = cov_type)    # Uses Driscoll-Kraay errors
+    results = model.fit(cov_type = cov_type)
 
     return results
 
@@ -552,7 +554,7 @@ def run_re_regression(df, ts, cs, target, predictors, cov_type = 'kernel'):
     Runs random effects panel regression.
     
     Args:
-        df (pandas.DataFrame): Input dataset
+        df (pandas.DataFrame): Input DataFrame
         ts (str): Time series column
         cs (str): Cross-section column
         target (list): Target variable(s)
@@ -585,8 +587,7 @@ def combine_regression_results(results_list, method='fe'):
     Combines regression results from multiple imputed datasets using Rubin's rules.
     
     Args:
-        results_list (list): List of regression results from either run_fe_regression
-            or run_re_regression
+        results_list (list): List of regression results from run_fe_regression or run_re_regression
         method (str): Type of regression performed ('fe' or 're')
     
     Returns:
@@ -599,12 +600,12 @@ def combine_regression_results(results_list, method='fe'):
             - r2: Combined R-squared value (between variation for FE)
     
     Notes:
-        Implementation follows Rubin's rules (Rubin, 1987):
+        Implementation follows Rubin's rules [1]:
         1. The combined estimate is the average of the individual estimates
         2. The combined variance accounts for both within and between imputation variance
         
     References:
-        Rubin, D.B. (1987). Multiple Imputation for Nonresponse in Surveys
+        [1] D.B. Rubin, Multiple Imputation for Nonresponse in Surveys. New York, NY, USA: John Wiley & Sons, Inc., 1987, doi: 10.1002/9780470316696.
     
     """
     
@@ -718,9 +719,9 @@ def run_combined_regression(
     Args:
         imputed_dfs (list): List of imputed DataFrames
         ts (str): Time series column name
-        cs (str): Cross-section identifier column name
+        cs (str): Cross-section column name
         target (list): Target variable(s)
-        predictors (list): Predictor variables
+        predictors (list): Predictor variable(s)
         method (str): Regression method ('fe' for fixed effects or 're' for random effects)
         time_effects (bool): Whether to include time fixed effects (only for FE)
         cov_type (str): Covariance estimator type
