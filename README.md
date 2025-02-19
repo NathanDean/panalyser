@@ -1,6 +1,6 @@
 # Panalyser
 
-A Python package for panel data analysis with robust handling of missing data.
+A Python package for user-friendly panel data analysis with robust handling of missing data.
 
 ## Overview
 
