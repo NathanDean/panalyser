@@ -1,34 +1,43 @@
 # Panalyser
 
-A Python package for user-friendly panel data analysis with robust handling of missing data.
-
 ## Overview
 
-Panalyser provides user-friendly tools for performing panel data analysis in Python.  It uses the R package Amelia to perform multiple imputation which accounts for time-series and cross-sectional dependencies, and can tune Amelia's hyperparameters using Bayesian optimisation.  It also includes tools for fixed and random effects linear regression, and allows users to combine the results of regression analyses on multiple imputed datasets using Rubin's rules.
+A package to make statistically valid imputation and analysis of panel data easier in Python.
 
-The package currently allows users to set the following Amelia hyperparameters:
-- x
-- m
-- ts
-- cs
-- bounds
-- tolerance
-- empri
-- max.resample
+### What it does
 
-<!-- Key features:
-- Multiple imputation of missing data using Amelia
-- Bayesian optimization of Amelia hyperparameters
-- Fixed and random effects panel regression
-- Combination of regression results using Rubin's rules
-- Data validation and cleaning -->
+- Cleans and validates data
+- Handles missing data via multiple imputation using R package Amelia II (via Python-R bridge)
+- Tunes Amelia II's hyperparameters using Bayesian optimisation
+- Estimates target values using fixed or random effects linear regression
+- Combines regression results using Rubin's rules
 
-## Requirements
+### Motivation
 
-- Python 3.7+
+Panel data analysis is complicated, as standard statistical tools cannot handle the time-series and cross-sectional dependencies it introduces. Therefore we need specialist tools, such as Amelia II for multiple imputation, and fixed or random effects regression models, such as those provided by linearmodels.
+
+However, while these tools exist, they can be very difficult to use. Accessing Amelia II from Python requires setting up a Python-R bridge, which is fraught with potential errors. Selecting the right linear model and applying the correct hyperparameters requires extensive reading of documentation and advanced statistical knowledge.
+
+Panalyser handles the Python-R setup and data validation to minimise the potential for errors. It also provides easily understandable wrappers for optimisation and analysis functions, with semantically meaningful names and correct hyperparameters as defaults.
+
+In doing so, this package aims to make statistically robust imputation and analysis of panel data easier and more accessible to non-experts.
+
+### Tech stack
+
+- Python
+- rpy2 (for Python-R bridge)
+- Amelia II (for multiple imputation)
+- scikit-optimize (for Bayesian optimisation)
+- linearmodels (for fixed and random effects linear regression)
+
+## Installation
+
+To use Panalyser, download this repo and install the following:
+
+- Python 3.13+
 - R installation
 - R packages:
-  - Amelia
+  - Amelia II
 - Python packages:
   - numpy
   - pandas
@@ -37,20 +46,11 @@ The package currently allows users to set the following Amelia hyperparameters:
   - scikit-optimize
   - scipy
 
-## Installation
-
-```bash
-pip install panalyser
-```
-
-Panalyser requires R and Amelia to be installed. You can install Amelia in R using:
-```r
-install.packages("Amelia")
-```
-
 You can find instructions on installing R [here](https://www.r-project.org/), and the Amelia II documentation [here](https://www.rdocumentation.org/packages/Amelia/versions/1.8.1).
 
 ## Usage
+
+Follow the instructions below to perform imputation, optimisation and analysis using Panalyser.
 
 ### Basic Imputation
 
@@ -71,6 +71,19 @@ imputed_dfs = run_imputation(
 )
 
 ```
+
+N.B. Panalyser currently allows users to set the following Amelia II hyperparameters:
+
+- x
+- m
+- ts
+- cs
+- bounds
+- tolerance
+- empri
+- max.resample
+
+Find more info on how to use Amelia II in the docs [here](https://www.rdocumentation.org/packages/Amelia/versions/1.8.1).
 
 ### Optimized Imputation
 
@@ -152,60 +165,17 @@ results = run_re_regression(
 
 ```
 
-## How It Works
-
-Panalyser uses rpy2 to access Amelia in R.  This gives Python users access to robust multiple imputation for panel data which:
-- handles time-series and cross-sectional dependencies
-- preserves relationships across variables, and
-- accounts for uncertainty in imputed data [1][2].
-
-Amelia imputation is supported by comprehensive data cleaning and formatting functions to minimise the potential for errors in the translation between Python and R.
-
-The optimisation function uses the gp_minimize function from scikit-optimize. It aims to minimise the difference between the correlations, means, and variances of the original and imputed datasets, to find the set of hyperparameters that best preserves the statistical properties of the observed data.
-
-The package uses linearmodels to provide linear regression with fixed and random effects, allowing users to account for the influence of unobserved effects in their data [3][4][5]. Panalyser uses Driscoll-Kraay standard errors by default, which have been shown to be more robust for linear regression on panel data [6].
-
-Finally, the package allows users to analyse multiple imputed datasets and combine the results using Rubin's rules.  This enables users to account for the uncertainty created by imputing data while providing statistically valid results [7].
-
-## Why this approach?
-
-This package began as part of a project that involved analysing a sparse panel dataset.
-
-While some advanced machine learning techniques can handle missing data, they provide results which are hard to interpret, and have limited use in establishing clear relationships between variables [8].
-
-As I began looking into options for handling the missing data, I learned that standard multiple imputation (MI) or maximum likelihood approaches are not valid on panel data [9].  The only tool I found that could handle missing panel data in a robust way was Amelia II.
-
-As my project required a solution in Python, I built a bridge from Python to R using rpy2.  This was a difficult process, involving a lot of error handling and bug fixing, and it occurred to me that others might find it useful to have a package which handled this setup for them.
-
-When I came to analyse my imputed data, I found that although tools for linear regression on panel data existed in linearmodels, they were not set up to use the most rigorous parameter settings.  I also found the relevant functions to be obscurely named and difficult to understand without intensively studying the package's documentation.  I therefore decided to repackage these functions in Panalyser, setting them up to use Driscoll-Kraay standard errors by default, and giving the functions and their attributes more meaningful names.
-
-Similarly, I found tools for combining multiple imputed datasets to be obscure and difficult to use, so decided to include a straightforward function for achieving this in the package as well.
-
-Overall, I aimed to create a package which brings together tools for panel data analysis in a way that is user-friendly and statistically robust, and ultimately makes it easier for researchers to gain valuable insights from panel data.
-
 ## Next steps
 
-Panalyser currently only allows users to tune a small number of Amelia's hyperparameters.  Future work on the package will focus on allowing users to set all the possible hyperparameters, and tune them using the optimisation function.
+Panalyser evolved from code I created for an MSc project requiring panel data analysis. The code has been genericised to allow it to work with other datasets, and it can be used for valid imputation and analysis by following the instructions below. However it needs further work before being officially released as a package:
 
-## References
+- **Python verson compatibility:** Panalyser has only been tested using Python 3.13. This is overly restrictive, and while it believe it should work with more commonly used earlier releases, this needs to be tested before a wider release.
+- **Modularisation:** Currently all functions are contained in the same file. This isn't ideal from the perspective of maintainability, so the different parts of the package should be split into their own modules.
+- **Testing:** I have tested Panalyser with several different datasets and it appears to perform as expected. However, more extensive automated testing is needed to confirm it behaves correctly across scenarios including edge cases before it can be considered fully reliable.
+- **Error handling:** Error messages are currently quite generic, and should be made more meaningful before wider release to help users debug any problems that arise.
+- **Additional features:** Panalyser is already a valuable tool for many use cases. However additional features such as more robust data validation for edge cases, allowing tuning of all Amelia II hyperparameters, and enabling parallel processing for large datasets, would make this package more useful and user-friendly for real-world problems.
 
-[1] J. Honaker and G. King, "What to Do about Missing Values in Time-Series Cross-Sectional Data", American Journal of Political Science, vol. 54, no. 2, pp. 561 – 581, 2010.
-
-[2] J. Honaker, G. King and M. Blackwell, "Amelia II: A Programme for Missing Data", Journal of Statistical Software, vol. 45, no. 7, pp. 1 – 45, 2011.
-
-[3] T.S. Clark and D.A. Linzer, “Should I Use Fixed or Random Effects?”, Political Science Research and Methods, vol. 3, no. 2, pp. 399 – 408, 2015
-
-[4] S. Longhi and A. Nandi, “Analysis of Cross-Section and Panel Data” in A Practical Guide to Using Panel Data, 1st ed. London, UK: Sage Publishing, 2014
-
-[5] Bell and K. Jones, “Explaining Fixed Effects: Random Effects Modeling of Time-Series Cross-Sectional and Panel Data”, Political Science Research and Methods, vol. 3, no. 1, pp. 133 – 153, 2015
-
-[6] D. Hoechle, "Robust standard errors for panel regressions with cross-sectional dependence", The Stata Journal, vol. 7, no. 3, pp. 281 – 312, 2007.
-
-[7] S. van Buuren, "Conclusion" in Flexible Imputation of Missing Data, 2nd ed. New York, NY, USA: Chapman & Hall, 2018.
-
-[8] M. Bertolini, D. Mezzogori, M. Neroni, F. Zammori, “Machine Learning for industrial purposes”, Expert Systems with Applications, vol. 175, 2021
-
-[9] R.J.A. Little and D.B. Rubin, “Multivariate Normal Examples, Ignoring the Missingness Mechanism” in Statistical Analysis with Missing Data, 3rd ed. Hoboken, NJ, USA: Wiley, 2020
+My time to implement these improvements is currently limited while I work on other projects for my MSc. However I intend to revisit Panalyser in future to address these issues.
 
 ## License
 
